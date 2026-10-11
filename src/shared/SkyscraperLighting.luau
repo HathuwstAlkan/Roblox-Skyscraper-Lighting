@@ -46,6 +46,7 @@ local UNLIT_TRANSPARENCY = BLACK_GLASS_TRANSPARENCY
 
 export type WindowData = {
 	Part: BasePart,
+	InteriorPart: BasePart?,
 	LitColor: Color3,
 	OriginalColor: Color3,
 	OriginalMaterial: Enum.Material,
@@ -66,42 +67,36 @@ local microEventTimer = 0
 
 -- Compute office occupancy probability from ClockTime (0 - 24)
 function SkyscraperLighting.GetOccupancyProbability(clockTime: number): number
-	-- 00:00 - 05:00: Deep night (cleaning crews, servers, security) ~18%
 	if clockTime < 5.0 then
 		return 0.18
-	-- 05:00 - 08:30: Morning arrival ramp (18% -> 55%)
 	elseif clockTime < 8.5 then
 		local alpha = (clockTime - 5.0) / 3.5
 		return 0.18 + (0.37 * alpha)
-	-- 08:30 - 16.5: Daytime standard office hours (lights on, ambient high) ~45%
 	elseif clockTime < 16.5 then
 		return 0.45
-	-- 16:50 - 19:30: Dusk Overtime Peak (Golden hour & Blue hour skyline glow!) ~88%
 	elseif clockTime < 19.5 then
 		local alpha = (clockTime - 16.5) / 3.0
 		return 0.45 + (0.43 * alpha)
-	-- 19:30 - 22:30: Evening departure ramp (88% -> 40%)
 	elseif clockTime < 22.5 then
 		local alpha = (clockTime - 19.5) / 3.0
 		return 0.88 - (0.48 * alpha)
-	-- 22:30 - 24:00: Night wind-down (40% -> 18%)
 	else
 		local alpha = (clockTime - 22.5) / 1.5
 		return 0.40 - (0.22 * alpha)
 	end
 end
 
--- Selects a realistic office color temperature based on weighted distribution
+-- Selects a realistic warm office color temperature
 local function getRandomWindowColor(): Color3
 	local roll = math.random()
 	if roll < 0.65 then
-		return COLOR_TEMPS.FluorescentOffice
+		return Color3.fromRGB(242, 172, 85) -- Warm Honey Gold
 	elseif roll < 0.85 then
-		return COLOR_TEMPS.WarmExecutive
+		return Color3.fromRGB(250, 195, 115) -- Champagne Gold
 	elseif roll < 0.95 then
-		return COLOR_TEMPS.CoolTerminal
+		return Color3.fromRGB(225, 150, 60) -- Deep Amber Gold
 	else
-		return COLOR_TEMPS.AmberAccent
+		return Color3.fromRGB(245, 235, 215) -- Soft Neutral White
 	end
 end
 
@@ -109,11 +104,17 @@ end
 local function registerWindow(part: BasePart)
 	if registeredWindows[part] then return end
 
+	-- Ensure the exterior part is set up as dark tinted architectural glass
+	part.Material = Enum.Material.Glass
+	part.Color = Color3.fromRGB(16, 20, 26) -- Dark smoked tint
+	part.Transparency = 0.45 -- 45% tint allows reflections while revealing glowing room inside
+
 	local litColor = getRandomWindowColor()
-	local floorId = math.floor(part.Position.Y / 14) -- approximate floor division
+	local floorId = math.floor(part.Position.Y / 14)
 
 	registeredWindows[part] = {
 		Part = part,
+		InteriorPart = nil,
 		LitColor = litColor,
 		OriginalColor = part.Color,
 		OriginalMaterial = part.Material,
@@ -124,23 +125,54 @@ local function registerWindow(part: BasePart)
 end
 
 local function unregisterWindow(part: BasePart)
+	local data = registeredWindows[part]
+	if data and data.InteriorPart then
+		data.InteriorPart:Destroy()
+	end
 	registeredWindows[part] = nil
 end
 
 -- Sets an individual window's lit/unlit visual state
+-- The exterior pane stays dark tinted glass; the interior part behind it glows!
 function SkyscraperLighting.SetWindowState(part: BasePart, lit: boolean)
 	local data = registeredWindows[part]
 	if not data then return end
 
 	data.IsLit = lit
+
+	-- 1. Outer glass is ALWAYS dark, sleek, tinted reflective glass
+	part.Material = Enum.Material.Glass
+	part.Color = Color3.fromRGB(16, 20, 26)
+	part.Transparency = 0.45
+
+	-- 2. Ensure recessed interior light exists 0.35 studs BEHIND the glass
+	local interior = data.InteriorPart
+	if not interior or not interior.Parent then
+		local parentModel = part.Parent or workspace
+		local found = parentModel:FindFirstChild(part.Name .. "_InteriorLight")
+		if not found or not found:IsA("BasePart") then
+			found = Instance.new("Part")
+			found.Name = part.Name .. "_InteriorLight"
+			found.Size = Vector3.new(math.max(0.4, part.Size.X * 0.94), math.max(0.4, part.Size.Y * 0.94), 0.15)
+			found.CFrame = part.CFrame * CFrame.new(0, 0, -0.35)
+			found.Anchored = true
+			found.CanCollide = false
+			found.CastShadow = false
+			found.Parent = parentModel
+		end
+		interior = found :: BasePart
+		data.InteriorPart = interior
+	end
+
+	-- 3. Update interior light state
 	if lit then
-		part.Material = Enum.Material.Neon
-		part.Color = data.LitColor
-		part.Transparency = 0.0
+		interior.Material = Enum.Material.Neon
+		interior.Color = data.LitColor
+		interior.Transparency = 0.0
 	else
-		part.Material = UNLIT_MATERIAL
-		part.Color = UNLIT_COLOR
-		part.Transparency = UNLIT_TRANSPARENCY
+		interior.Material = Enum.Material.SmoothPlastic
+		interior.Color = Color3.fromRGB(16, 18, 22) -- Dark unlit room backing
+		interior.Transparency = 0.0
 	end
 end
 

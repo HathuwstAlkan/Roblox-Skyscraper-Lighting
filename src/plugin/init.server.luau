@@ -1,152 +1,247 @@
 --!strict
 --[[
-	SkyscraperLightingPlugin.server.luau
+	SkyscraperLightingPlugin (init.server.luau)
 	Roblox Studio Plugin for Photorealistic Lighting & Skyscraper Systems.
 	Features:
 	  - One-click Photoreal Future Lighting setup with calibrated physical Atmosphere, Bloom, ColorCorrection, SunRays.
 	  - Architectural photography presets: Blue Hour, Golden Hour, Noon, Metropolis Night, Moody Overcast.
-	  - Skyscraper window scanner, material converter, and procedural occupancy generator.
+	  - Dual-layer window architecture: Exterior tinted obsidian glass + recessed interior golden office lights.
+	  - Modular non-stretching curtain wall generator & 360-degree round glass tower generator.
 	  - Rooftop FAA/ICAO synchronized aviation warning beacons.
+	  - Floating non-docking palette & direct Studio ribbon buttons to prevent Qt cursor capture.
 ]]
 
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
 local Selection = game:GetService("Selection")
-local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local TAG_WINDOW = "SkyscraperWindow"
+local TAG_INTERIOR = "SkyscraperInteriorLight"
 local TAG_BEACON = "AviationBeacon"
 local TAG_FACADE = "FacadeLight"
 
+-- Architectural tinted glass specification
+local GLASS_TINT_COLOR = Color3.fromRGB(16, 20, 26) -- Dark obsidian tint
+local GLASS_TRANSPARENCY = 0.45 -- 45% tint balances sky reflections with interior illumination
+
+-- Golden specks interior lighting palette
+local GOLDEN_COLORS = {
+	Color3.fromRGB(245, 185, 95),  -- Warm Glowing Honey Gold (2700K)
+	Color3.fromRGB(252, 205, 125), -- Soft Champagne Amber (3000K)
+	Color3.fromRGB(235, 160, 65),  -- Deep Sunset Amber (2400K)
+	Color3.fromRGB(255, 222, 155), -- Cozy Desk Lamp Glow (3200K)
+}
+local UNLIT_ROOM_COLOR = Color3.fromRGB(16, 18, 22) -- Dark unlit office interior
+
+-- Photoreal calibrated shader presets
 local PRESETS = {
 	BlueHour = {
-		Name = "🌆 Blue Hour (Skyscraper Dusk)",
+		Name = "Blue Hour (Skyscraper Dusk)",
 		ClockTime = 18.25,
 		GeographicLatitude = 40.7,
-		Brightness = 1.8,
-		ExposureCompensation = 0.05,
-		EnvironmentDiffuseScale = 1.0,
+		Brightness = 0.9, -- Calibrated non-blinding dusk illumination
+		ExposureCompensation = -0.05,
+		EnvironmentDiffuseScale = 0.85,
 		EnvironmentSpecularScale = 1.0,
-		ShadowSoftness = 0.2,
-		OutdoorAmbient = Color3.fromRGB(45, 60, 95),
-		Ambient = Color3.fromRGB(22, 28, 42),
-		ColorShift_Top = Color3.fromRGB(255, 195, 145),
-		ColorShift_Bottom = Color3.fromRGB(38, 50, 78),
+		ShadowSoftness = 0.15,
+		OutdoorAmbient = Color3.fromRGB(35, 45, 65),
+		Ambient = Color3.fromRGB(18, 22, 32),
+		ColorShift_Top = Color3.fromRGB(245, 180, 130),
+		ColorShift_Bottom = Color3.fromRGB(30, 40, 65),
 		Atmosphere = {
-			Density = 0.38, Offset = 0.28, Glare = 0.38, Haze = 1.35,
-			Color = Color3.fromRGB(155, 185, 235), Decay = Color3.fromRGB(55, 78, 130),
+			Density = 0.32,
+			Offset = 0.22,
+			Glare = 0.15,
+			Haze = 1.1,
+			Color = Color3.fromRGB(140, 165, 210),
+			Decay = Color3.fromRGB(45, 60, 95),
 		},
-		Bloom = { Threshold = 1.75, Size = 24, Intensity = 0.45 },
+		Bloom = {
+			Threshold = 2.2, -- Pinpoint threshold: only true light sources bloom, preventing washed-out glare
+			Size = 14, -- Tight optical glare around window frames
+			Intensity = 0.22, -- Subtle, photorealistic glow
+		},
 		ColorCorrection = {
-			Brightness = 0.02, Contrast = 0.14, Saturation = 0.06,
-			TintColor = Color3.fromRGB(250, 248, 255),
+			Brightness = 0.0,
+			Contrast = 0.12,
+			Saturation = 0.04,
+			TintColor = Color3.fromRGB(252, 250, 255),
 		},
-		SunRays = { Intensity = 0.08, Spread = 0.72 },
+		SunRays = {
+			Intensity = 0.08,
+			Spread = 0.72,
+		},
+		Clouds = {
+			Cover = 0.55,
+			Density = 0.35,
+		},
 	},
 	GoldenHour = {
-		Name = "🌅 Golden Hour (Dramatic Sunset)",
+		Name = "Golden Hour (Dramatic Sunset)",
 		ClockTime = 17.4,
 		GeographicLatitude = 40.7,
-		Brightness = 2.4,
+		Brightness = 1.4,
 		ExposureCompensation = 0.0,
 		EnvironmentDiffuseScale = 1.0,
 		EnvironmentSpecularScale = 1.0,
 		ShadowSoftness = 0.25,
-		OutdoorAmbient = Color3.fromRGB(80, 68, 58),
-		Ambient = Color3.fromRGB(42, 34, 28),
+		OutdoorAmbient = Color3.fromRGB(75, 62, 52),
+		Ambient = Color3.fromRGB(38, 30, 25),
 		ColorShift_Top = Color3.fromRGB(255, 175, 95),
-		ColorShift_Bottom = Color3.fromRGB(85, 55, 38),
+		ColorShift_Bottom = Color3.fromRGB(80, 52, 35),
 		Atmosphere = {
-			Density = 0.32, Offset = 0.25, Glare = 0.65, Haze = 1.6,
-			Color = Color3.fromRGB(255, 185, 130), Decay = Color3.fromRGB(180, 75, 45),
+			Density = 0.30,
+			Offset = 0.24,
+			Glare = 0.45,
+			Haze = 1.4,
+			Color = Color3.fromRGB(255, 185, 130),
+			Decay = Color3.fromRGB(180, 75, 45),
 		},
-		Bloom = { Threshold = 1.6, Size = 26, Intensity = 0.42 },
+		Bloom = {
+			Threshold = 2.2,
+			Size = 16,
+			Intensity = 0.25,
+		},
 		ColorCorrection = {
-			Brightness = 0.03, Contrast = 0.12, Saturation = 0.10,
+			Brightness = 0.02,
+			Contrast = 0.12,
+			Saturation = 0.08,
 			TintColor = Color3.fromRGB(255, 246, 236),
 		},
-		SunRays = { Intensity = 0.15, Spread = 0.78 },
+		SunRays = {
+			Intensity = 0.14,
+			Spread = 0.75,
+		},
+		Clouds = {
+			Cover = 0.5,
+			Density = 0.4,
+		},
 	},
 	HighNoon = {
-		Name = "☀️ Photoreal Noon (Crisp Daylight)",
+		Name = "Photoreal Noon (Crisp Daylight)",
 		ClockTime = 12.0,
 		GeographicLatitude = 40.7,
-		Brightness = 2.7,
+		Brightness = 1.8,
 		ExposureCompensation = 0.0,
 		EnvironmentDiffuseScale = 1.0,
 		EnvironmentSpecularScale = 1.0,
 		ShadowSoftness = 0.18,
-		OutdoorAmbient = Color3.fromRGB(110, 118, 128),
-		Ambient = Color3.fromRGB(48, 50, 55),
+		OutdoorAmbient = Color3.fromRGB(105, 112, 122),
+		Ambient = Color3.fromRGB(45, 48, 52),
 		ColorShift_Top = Color3.fromRGB(255, 252, 246),
-		ColorShift_Bottom = Color3.fromRGB(120, 125, 132),
+		ColorShift_Bottom = Color3.fromRGB(115, 120, 128),
 		Atmosphere = {
-			Density = 0.28, Offset = 0.22, Glare = 0.25, Haze = 0.85,
-			Color = Color3.fromRGB(195, 215, 242), Decay = Color3.fromRGB(95, 125, 160),
+			Density = 0.26,
+			Offset = 0.20,
+			Glare = 0.20,
+			Haze = 0.8,
+			Color = Color3.fromRGB(195, 215, 242),
+			Decay = Color3.fromRGB(95, 125, 160),
 		},
-		Bloom = { Threshold = 2.0, Size = 22, Intensity = 0.32 },
+		Bloom = {
+			Threshold = 2.4,
+			Size = 12,
+			Intensity = 0.15,
+		},
 		ColorCorrection = {
-			Brightness = 0.01, Contrast = 0.10, Saturation = 0.05,
+			Brightness = 0.0,
+			Contrast = 0.10,
+			Saturation = 0.04,
 			TintColor = Color3.fromRGB(255, 255, 255),
 		},
-		SunRays = { Intensity = 0.05, Spread = 0.60 },
+		SunRays = {
+			Intensity = 0.04,
+			Spread = 0.60,
+		},
+		Clouds = {
+			Cover = 0.4,
+			Density = 0.32,
+		},
 	},
 	NightMetropolis = {
-		Name = "🌃 Metropolis Night (Glowing Skyline)",
+		Name = "Metropolis Night (Glowing Skyline)",
 		ClockTime = 22.8,
 		GeographicLatitude = 40.7,
-		Brightness = 0.35,
-		ExposureCompensation = 0.1,
-		EnvironmentDiffuseScale = 0.9,
+		Brightness = 0.22,
+		ExposureCompensation = 0.05,
+		EnvironmentDiffuseScale = 0.85,
 		EnvironmentSpecularScale = 1.0,
 		ShadowSoftness = 0.3,
-		OutdoorAmbient = Color3.fromRGB(16, 20, 32),
-		Ambient = Color3.fromRGB(12, 14, 22),
-		ColorShift_Top = Color3.fromRGB(85, 105, 150),
-		ColorShift_Bottom = Color3.fromRGB(15, 20, 32),
+		OutdoorAmbient = Color3.fromRGB(14, 18, 28),
+		Ambient = Color3.fromRGB(10, 12, 18),
+		ColorShift_Top = Color3.fromRGB(75, 95, 140),
+		ColorShift_Bottom = Color3.fromRGB(14, 18, 28),
 		Atmosphere = {
-			Density = 0.42, Offset = 0.30, Glare = 0.12, Haze = 1.85,
-			Color = Color3.fromRGB(26, 36, 62), Decay = Color3.fromRGB(10, 15, 32),
+			Density = 0.38,
+			Offset = 0.28,
+			Glare = 0.10,
+			Haze = 1.6,
+			Color = Color3.fromRGB(24, 32, 55),
+			Decay = Color3.fromRGB(8, 12, 28),
 		},
-		Bloom = { Threshold = 1.45, Size = 28, Intensity = 0.58 },
+		Bloom = {
+			Threshold = 2.1,
+			Size = 14,
+			Intensity = 0.26,
+		},
 		ColorCorrection = {
-			Brightness = 0.01, Contrast = 0.16, Saturation = 0.08,
+			Brightness = 0.0,
+			Contrast = 0.14,
+			Saturation = 0.06,
 			TintColor = Color3.fromRGB(240, 245, 255),
 		},
-		SunRays = { Intensity = 0.0, Spread = 0.5 },
+		SunRays = {
+			Intensity = 0.0,
+			Spread = 0.5,
+		},
+		Clouds = {
+			Cover = 0.45,
+			Density = 0.3,
+		},
 	},
 	OvercastMoody = {
-		Name = "☁️ Moody Overcast (Soft Fog)",
+		Name = "Moody Overcast (Soft Fog)",
 		ClockTime = 14.5,
 		GeographicLatitude = 40.7,
-		Brightness = 1.35,
+		Brightness = 0.85,
 		ExposureCompensation = 0.0,
 		EnvironmentDiffuseScale = 1.0,
 		EnvironmentSpecularScale = 1.0,
 		ShadowSoftness = 0.4,
-		OutdoorAmbient = Color3.fromRGB(88, 92, 102),
-		Ambient = Color3.fromRGB(44, 46, 52),
-		ColorShift_Top = Color3.fromRGB(175, 185, 195),
-		ColorShift_Bottom = Color3.fromRGB(78, 82, 90),
+		OutdoorAmbient = Color3.fromRGB(80, 85, 95),
+		Ambient = Color3.fromRGB(40, 42, 48),
+		ColorShift_Top = Color3.fromRGB(165, 175, 185),
+		ColorShift_Bottom = Color3.fromRGB(72, 76, 84),
 		Atmosphere = {
-			Density = 0.54, Offset = 0.36, Glare = 0.12, Haze = 2.4,
-			Color = Color3.fromRGB(170, 180, 190), Decay = Color3.fromRGB(105, 115, 125),
+			Density = 0.50,
+			Offset = 0.34,
+			Glare = 0.10,
+			Haze = 2.2,
+			Color = Color3.fromRGB(165, 175, 185),
+			Decay = Color3.fromRGB(100, 110, 120),
 		},
-		Bloom = { Threshold = 1.9, Size = 20, Intensity = 0.25 },
+		Bloom = {
+			Threshold = 2.4,
+			Size = 12,
+			Intensity = 0.14,
+		},
 		ColorCorrection = {
-			Brightness = -0.01, Contrast = 0.08, Saturation = -0.05,
+			Brightness = -0.01,
+			Contrast = 0.08,
+			Saturation = -0.05,
 			TintColor = Color3.fromRGB(235, 240, 245),
 		},
-		SunRays = { Intensity = 0.02, Spread = 0.85 },
+		SunRays = {
+			Intensity = 0.02,
+			Spread = 0.85,
+		},
+		Clouds = {
+			Cover = 0.75,
+			Density = 0.55,
+		},
 	},
-}
-
-local OFFICE_COLORS = {
-	Color3.fromRGB(248, 244, 236), -- 4000K Neutral White (Fluorescent)
-	Color3.fromRGB(255, 214, 168), -- 2700K Warm Incandescent
-	Color3.fromRGB(218, 235, 255), -- 6000K Cool White
 }
 
 local function getOrCreate<T>(className: string, name: string, parent: Instance): T
@@ -209,111 +304,189 @@ local function applyLightingPreset(key: string)
 		clouds.Name = "AtmosphericClouds"
 		clouds.Parent = terrain
 	end
-	clouds.Cover = 0.5
-	clouds.Density = 0.35
+	clouds.Cover = p.Clouds.Cover
+	clouds.Density = p.Clouds.Density
 
 	ChangeHistoryService:SetWaypoint("Applied " .. p.Name)
+	print("[SkyscraperPlugin] Applied photoreal lighting preset:", p.Name)
 end
 
--- Spawns a 360-degree round glass skyscraper tower
-local function spawnCylindricalTower(): Model
-	local cam = workspace.CurrentCamera
-	local cframe = cam and (cam.CFrame * CFrame.new(0, 0, -45)) or CFrame.new(0, 40, 0)
-	cframe = CFrame.new(cframe.Position)
+-- Calculates inward CFrame offset and size for a recessed interior light behind an exterior window pane
+local function computeInteriorLightGeometry(part: BasePart, modelCenter: Vector3): (CFrame, Vector3)
+	local cf = part.CFrame
+	local sx, sy, sz = part.Size.X, part.Size.Y, part.Size.Z
+	local toCenter = modelCenter - part.Position
 
-	local radius = 22
-	local height = 80
-	local numFloors = math.max(1, math.round(height / 10))
-	local floorH = height / numFloors
-	local totalArcRad = math.rad(360)
-	local numBays = math.max(6, math.round((radius * totalArcRad) / 3.6))
-	local dTheta = totalArcRad / numBays
-	local bayChordW = 2 * radius * math.sin(dTheta * 0.5)
+	-- Identify the thinnest axis (window normal)
+	if sz <= sx and sz <= sy then
+		-- Normal is along Z axis (LookVector)
+		local sign = (cf.LookVector:Dot(toCenter) >= 0) and 1 or -1
+		local offsetDist = (sz * 0.5) + 0.20
+		local lightCF = cf * CFrame.new(0, 0, sign * offsetDist)
+		local lightSize = Vector3.new(math.max(0.3, sx * 0.94), math.max(0.3, sy * 0.94), 0.12)
+		return lightCF, lightSize
+	elseif sx <= sy and sx <= sz then
+		-- Normal is along X axis (RightVector)
+		local sign = (cf.RightVector:Dot(toCenter) >= 0) and 1 or -1
+		local offsetDist = (sx * 0.5) + 0.20
+		local lightCF = cf * CFrame.new(sign * offsetDist, 0, 0)
+		local lightSize = Vector3.new(0.12, math.max(0.3, sy * 0.94), math.max(0.3, sz * 0.94))
+		return lightCF, lightSize
+	else
+		-- Normal is along Y axis (UpVector)
+		local sign = (cf.UpVector:Dot(toCenter) >= 0) and 1 or -1
+		local offsetDist = (sy * 0.5) + 0.20
+		local lightCF = cf * CFrame.new(0, sign * offsetDist, 0)
+		local lightSize = Vector3.new(math.max(0.3, sx * 0.94), 0.12, math.max(0.3, sz * 0.94))
+		return lightCF, lightSize
+	end
+end
 
-	local facadeModel = Instance.new("Model")
-	facadeModel.Name = string.format("Cylindrical_Glass_Tower_R%d_H%d", math.round(radius), math.round(height))
+-- Ensures a window part has dark tinted glass on the outside and a recessed light part behind it
+local function setupDualLayerWindow(part: BasePart, modelCenter: Vector3, isLit: boolean): BasePart
+	-- 1. Outer window pane ALWAYS remains dark tinted glass
+	part.Material = Enum.Material.Glass
+	part.Color = GLASS_TINT_COLOR
+	part.Transparency = GLASS_TRANSPARENCY
+	part.Reflectance = 0
+	part.CastShadow = false
+	CollectionService:AddTag(part, TAG_WINDOW)
 
-	local goldenColors = {
-		Color3.fromRGB(255, 188, 85),
-		Color3.fromRGB(255, 212, 128),
-		Color3.fromRGB(255, 164, 58),
-		Color3.fromRGB(255, 198, 105),
-	}
+	-- 2. Locate or create recessed interior light part behind the glass
+	local parentModel = part.Parent or workspace
+	local interiorName = part.Name .. "_InteriorLight"
+	local interior = parentModel:FindFirstChild(interiorName) :: BasePart?
 
-	for b = 0, numBays - 1 do
-		local angle = (b + 0.5) * dTheta
-		local cosA, sinA = math.cos(angle), math.sin(angle)
-		local radialDir = Vector3.new(sinA, 0, cosA)
-		local tangentDir = Vector3.new(cosA, 0, -sinA)
-		local bayCenterLocal = radialDir * radius
-		local bayRotation = CFrame.fromMatrix(Vector3.zero, tangentDir, Vector3.new(0, 1, 0), radialDir)
-
-		for f = 0, numFloors - 1 do
-			local floorCenterY = -height * 0.5 + ((f + 0.5) * floorH)
-			local floorId = math.floor((cframe.Position.Y + floorCenterY) / 10)
-			local paneCFrame = cframe * CFrame.new(bayCenterLocal.X, floorCenterY, bayCenterLocal.Z) * bayRotation
-
-			local outerGlass = Instance.new("Part")
-			outerGlass.Name = string.format("CurvedGlass_F%d_B%d", f + 1, b + 1)
-			outerGlass.Size = Vector3.new(bayChordW - 0.2, floorH - 0.5, 0.12)
-			outerGlass.CFrame = paneCFrame * CFrame.new(0, 0, 0.06)
-			outerGlass.Color = Color3.fromRGB(14, 17, 24)
-			outerGlass.Material = Enum.Material.Glass
-			outerGlass.Transparency = 0.28
-			outerGlass.Anchored = true
-			outerGlass.CanCollide = true
-			outerGlass.Parent = facadeModel
-
-			local innerLight = Instance.new("Part")
-			innerLight.Name = string.format("InteriorLight_F%d_B%d", f + 1, b + 1)
-			innerLight.Size = Vector3.new(bayChordW - 0.4, floorH - 0.7, 0.12)
-			innerLight.CFrame = paneCFrame * CFrame.new(0, 0, -0.32)
-			innerLight.Anchored = true
-			innerLight.CanCollide = false
-			innerLight.CastShadow = false
-
-			local worldPos = innerLight.Position
-			local hashVal = math.noise(worldPos.X * 0.06, floorId * 0.5, worldPos.Z * 0.06)
-			local isLit = (hashVal + 1) * 0.5 <= 0.45
-
-			local pickedColor = goldenColors[math.random(1, #goldenColors)]
-			if isLit then
-				innerLight.Material = Enum.Material.Neon
-				innerLight.Color = pickedColor
-				innerLight.Transparency = 0.0
-			else
-				innerLight.Material = Enum.Material.SmoothPlastic
-				innerLight.Color = Color3.fromRGB(16, 18, 24)
-				innerLight.Transparency = 0.0
-			end
-
-			CollectionService:AddTag(innerLight, TAG_WINDOW)
-			innerLight.Parent = facadeModel
-		end
-
-		local mullionAngle = b * dTheta
-		local mCos, mSin = math.cos(mullionAngle), math.sin(mullionAngle)
-		local mPos = Vector3.new(mSin, 0, mCos) * radius
-		local mRot = CFrame.fromMatrix(Vector3.zero, Vector3.new(mCos, 0, -mSin), Vector3.new(0, 1, 0), Vector3.new(mSin, 0, mCos))
-
-		local mullion = Instance.new("Part")
-		mullion.Name = "Curved_Mullion"
-		mullion.Size = Vector3.new(0.35, height, 0.45)
-		mullion.CFrame = cframe * CFrame.new(mPos.X, 0, mPos.Z) * mRot
-		mullion.Color = Color3.fromRGB(20, 22, 28)
-		mullion.Material = Enum.Material.Metal
-		mullion.Anchored = true
-		mullion.CanCollide = true
-		mullion.Parent = facadeModel
+	if not interior or not interior:IsA("BasePart") then
+		local lightCF, lightSize = computeInteriorLightGeometry(part, modelCenter)
+		local created = Instance.new("Part")
+		created.Name = interiorName
+		created.Size = lightSize
+		created.CFrame = lightCF
+		created.Anchored = true
+		created.CanCollide = false
+		created.CastShadow = false
+		created.Parent = parentModel
+		interior = created
 	end
 
-	facadeModel.Parent = workspace
-	Selection:Set({ facadeModel })
-	ChangeHistoryService:SetWaypoint("Generated Cylindrical Tower")
-	return facadeModel
+	CollectionService:AddTag(interior, TAG_INTERIOR)
+
+	-- 3. Set interior light state
+	if isLit then
+		interior.Material = Enum.Material.Neon
+		interior.Color = GOLDEN_COLORS[math.random(1, #GOLDEN_COLORS)]
+		interior.Transparency = 0.0
+	else
+		interior.Material = Enum.Material.SmoothPlastic
+		interior.Color = UNLIT_ROOM_COLOR
+		interior.Transparency = 0.0
+	end
+
+	return interior
 end
 
--- Spawns or fits a dual-layer glass curtain wall facade
+-- Checks if a part is a window candidate (excluding existing interior lights)
+local function isWindowCandidate(part: BasePart): boolean
+	if string.find(part.Name, "_InteriorLight") or CollectionService:HasTag(part, TAG_INTERIOR) then
+		return false
+	end
+	if CollectionService:HasTag(part, TAG_WINDOW) then
+		return true
+	end
+	local lowerName = string.lower(part.Name)
+	if string.find(lowerName, "window") or string.find(lowerName, "glass") or string.find(lowerName, "pane") or string.find(lowerName, "glazing") or string.find(lowerName, "curtain") then
+		return true
+	end
+	if part.Material == Enum.Material.Glass or part.Material == Enum.Material.Neon then
+		return true
+	end
+	if part.Transparency > 0.05 and part.Transparency < 0.95 then
+		return true
+	end
+	return false
+end
+
+-- Convert selected building model windows to dual-layer tinted glass & warm interior lights
+local function convertSelectedBuildingWindows(): number
+	local selected = Selection:Get()
+	if #selected == 0 then
+		warn("[SkyscraperPlugin] Select a building model or parts in the Explorer first!")
+		return 0
+	end
+
+	local convertedCount = 0
+
+	for _, root in ipairs(selected) do
+		local partsToConvert: { BasePart } = {}
+		local modelCenter = Vector3.zero
+
+		if root:IsA("Model") then
+			local cf = root:GetBoundingBox()
+			modelCenter = cf.Position
+			for _, desc in ipairs(root:GetDescendants()) do
+				if desc:IsA("BasePart") and isWindowCandidate(desc) then
+					table.insert(partsToConvert, desc)
+				end
+			end
+		elseif root:IsA("BasePart") then
+			modelCenter = root.Position - (root.CFrame.LookVector * 10)
+			if isWindowCandidate(root) then
+				table.insert(partsToConvert, root)
+			end
+		end
+
+		for _, part in ipairs(partsToConvert) do
+			-- 45% active golden specks ratio for luxury skyscraper aesthetic
+			local isLit = math.random() < 0.45
+			setupDualLayerWindow(part, modelCenter, isLit)
+			convertedCount += 1
+		end
+	end
+
+	ChangeHistoryService:SetWaypoint("Converted " .. convertedCount .. " Dual-Layer Windows")
+	print(string.format("[SkyscraperPlugin] Successfully converted %d windows to tinted glass with recessed golden lights.", convertedCount))
+	return convertedCount
+end
+
+-- Randomize lit state of all tagged skyscraper windows
+local function randomizeTaggedWindows(litProbability: number?): number
+	local prob = litProbability or 0.45
+	local count = 0
+
+	for _, part in ipairs(CollectionService:GetTagged(TAG_WINDOW)) do
+		if part:IsA("BasePart") and not CollectionService:HasTag(part, TAG_INTERIOR) then
+			-- Ensure outer glass stays dark obsidian tinted glass
+			part.Material = Enum.Material.Glass
+			part.Color = GLASS_TINT_COLOR
+			part.Transparency = GLASS_TRANSPARENCY
+
+			-- Locate interior light
+			local parent = part.Parent or workspace
+			local interior = parent:FindFirstChild(part.Name .. "_InteriorLight") :: BasePart?
+
+			if interior and interior:IsA("BasePart") then
+				local isLit = math.random() < prob
+				if isLit then
+					interior.Material = Enum.Material.Neon
+					interior.Color = GOLDEN_COLORS[math.random(1, #GOLDEN_COLORS)]
+					interior.Transparency = 0.0
+				else
+					interior.Material = Enum.Material.SmoothPlastic
+					interior.Color = UNLIT_ROOM_COLOR
+					interior.Transparency = 0.0
+				end
+				count += 1
+			end
+		end
+	end
+
+	ChangeHistoryService:SetWaypoint("Randomized " .. count .. " Window Lights")
+	print(string.format("[SkyscraperPlugin] Randomized %d interior lights.", count))
+	return count
+end
+
+-- Generates or fits a dual-layer glass curtain wall facade
 local function spawnOrFitCurtainWall(): Model
 	local selected = Selection:Get()
 	local cframe: CFrame
@@ -341,11 +514,8 @@ local function spawnOrFitCurtainWall(): Model
 		end
 	else
 		local cam = workspace.CurrentCamera
-		if cam then
-			cframe = cam.CFrame * CFrame.new(0, 0, -30)
-		else
-			cframe = CFrame.new(0, 30, 0)
-		end
+		cframe = cam and (cam.CFrame * CFrame.new(0, 0, -35)) or CFrame.new(0, 30, 0)
+		cframe = CFrame.new(cframe.Position)
 		width = 36
 		height = 60
 	end
@@ -355,20 +525,13 @@ local function spawnOrFitCurtainWall(): Model
 
 	local numFloors = math.max(1, math.round(height / 10))
 	local floorH = height / numFloors
-
 	local numBays = math.max(1, math.round(width / 3.8))
 	local bayW = width / numBays
 
 	local mullionColor = Color3.fromRGB(20, 22, 28)
 	local mullionMat = Enum.Material.Metal
 
-	local goldenColors = {
-		Color3.fromRGB(255, 188, 85),
-		Color3.fromRGB(255, 212, 128),
-		Color3.fromRGB(255, 164, 58),
-		Color3.fromRGB(255, 198, 105),
-	}
-
+	-- Horizontal Spandrels
 	for f = 0, numFloors do
 		local spandrelY = -height * 0.5 + (f * floorH)
 		local spandrel = Instance.new("Part")
@@ -382,6 +545,7 @@ local function spawnOrFitCurtainWall(): Model
 		spandrel.Parent = facadeModel
 	end
 
+	-- Vertical Mullions
 	for b = 0, numBays do
 		local mullionX = -width * 0.5 + (b * bayW)
 		local mullion = Instance.new("Part")
@@ -395,6 +559,7 @@ local function spawnOrFitCurtainWall(): Model
 		mullion.Parent = facadeModel
 	end
 
+	-- Dual-Layer Window Grid
 	for f = 0, numFloors - 1 do
 		local floorCenterY = -height * 0.5 + ((f + 0.5) * floorH)
 		local floorId = math.floor((cframe.Position.Y + floorCenterY) / 10)
@@ -403,19 +568,23 @@ local function spawnOrFitCurtainWall(): Model
 			local bayCenterX = -width * 0.5 + ((b + 0.5) * bayW)
 			local worldPos = (cframe * CFrame.new(bayCenterX, floorCenterY, 0)).Position
 
+			-- 1. Outer Glass (Dark obsidian tinted glass, PBR reflections)
 			local outerGlass = Instance.new("Part")
 			outerGlass.Name = string.format("GlassPane_F%d_B%d", f + 1, b + 1)
 			outerGlass.Size = Vector3.new(bayW - 0.38, floorH - 0.55, 0.12)
 			outerGlass.CFrame = cframe * CFrame.new(bayCenterX, floorCenterY, 0.08)
-			outerGlass.Color = Color3.fromRGB(14, 17, 24)
+			outerGlass.Color = GLASS_TINT_COLOR
 			outerGlass.Material = Enum.Material.Glass
-			outerGlass.Transparency = 0.28
+			outerGlass.Transparency = GLASS_TRANSPARENCY
+			outerGlass.CastShadow = false
 			outerGlass.Anchored = true
 			outerGlass.CanCollide = true
 			outerGlass.Parent = facadeModel
+			CollectionService:AddTag(outerGlass, TAG_WINDOW)
 
+			-- 2. Recessed Interior Light (0.4 studs behind glass into building)
 			local innerLight = Instance.new("Part")
-			innerLight.Name = string.format("InteriorLight_F%d_B%d", f + 1, b + 1)
+			innerLight.Name = string.format("GlassPane_F%d_B%d_InteriorLight", f + 1, b + 1)
 			innerLight.Size = Vector3.new(bayW - 0.55, floorH - 0.75, 0.12)
 			innerLight.CFrame = cframe * CFrame.new(bayCenterX, floorCenterY, -0.32)
 			innerLight.Anchored = true
@@ -425,19 +594,17 @@ local function spawnOrFitCurtainWall(): Model
 			local hashVal = math.noise(worldPos.X * 0.06, floorId * 0.5, worldPos.Z * 0.06)
 			local isLit = (hashVal + 1) * 0.5 <= 0.45
 
-			local pickedColor = goldenColors[math.random(1, #goldenColors)]
-
 			if isLit then
 				innerLight.Material = Enum.Material.Neon
-				innerLight.Color = pickedColor
+				innerLight.Color = GOLDEN_COLORS[math.random(1, #GOLDEN_COLORS)]
 				innerLight.Transparency = 0.0
 			else
 				innerLight.Material = Enum.Material.SmoothPlastic
-				innerLight.Color = Color3.fromRGB(16, 18, 24)
+				innerLight.Color = UNLIT_ROOM_COLOR
 				innerLight.Transparency = 0.0
 			end
 
-			CollectionService:AddTag(innerLight, TAG_WINDOW)
+			CollectionService:AddTag(innerLight, TAG_INTERIOR)
 			innerLight.Parent = facadeModel
 		end
 	end
@@ -448,130 +615,99 @@ local function spawnOrFitCurtainWall(): Model
 	return facadeModel
 end
 
--- Apply signature Black Glass & Golden Specks aesthetic
-local function applyBlackGlassAndGoldenSpecks(): number
-	local selected = Selection:Get()
-	local targetParts: { BasePart } = {}
+-- Spawns a 360-degree round glass skyscraper tower
+local function spawnCylindricalTower(): Model
+	local cam = workspace.CurrentCamera
+	local cframe = cam and (cam.CFrame * CFrame.new(0, 0, -45)) or CFrame.new(0, 40, 0)
+	cframe = CFrame.new(cframe.Position)
 
-	if #selected > 0 then
-		for _, root in ipairs(selected) do
-			if root:IsA("BasePart") then
-				table.insert(targetParts, root)
+	local radius = 22
+	local height = 80
+	local numFloors = math.max(1, math.round(height / 10))
+	local floorH = height / numFloors
+	local totalArcRad = math.rad(360)
+	local numBays = math.max(6, math.round((radius * totalArcRad) / 3.6))
+	local dTheta = totalArcRad / numBays
+	local bayChordW = 2 * radius * math.sin(dTheta * 0.5)
+
+	local facadeModel = Instance.new("Model")
+	facadeModel.Name = string.format("Cylindrical_Glass_Tower_R%d_H%d", math.round(radius), math.round(height))
+
+	for b = 0, numBays - 1 do
+		local angle = (b + 0.5) * dTheta
+		local cosA, sinA = math.cos(angle), math.sin(angle)
+		local radialDir = Vector3.new(sinA, 0, cosA)
+		local tangentDir = Vector3.new(cosA, 0, -sinA)
+		local bayCenterLocal = radialDir * radius
+		local bayRotation = CFrame.fromMatrix(Vector3.zero, tangentDir, Vector3.new(0, 1, 0), radialDir)
+
+		for f = 0, numFloors - 1 do
+			local floorCenterY = -height * 0.5 + ((f + 0.5) * floorH)
+			local floorId = math.floor((cframe.Position.Y + floorCenterY) / 10)
+			local paneCFrame = cframe * CFrame.new(bayCenterLocal.X, floorCenterY, bayCenterLocal.Z) * bayRotation
+
+			-- 1. Outer Curved Glass Pane
+			local outerGlass = Instance.new("Part")
+			outerGlass.Name = string.format("CurvedGlass_F%d_B%d", f + 1, b + 1)
+			outerGlass.Size = Vector3.new(bayChordW - 0.2, floorH - 0.5, 0.12)
+			outerGlass.CFrame = paneCFrame * CFrame.new(0, 0, 0.06)
+			outerGlass.Color = GLASS_TINT_COLOR
+			outerGlass.Material = Enum.Material.Glass
+			outerGlass.Transparency = GLASS_TRANSPARENCY
+			outerGlass.CastShadow = false
+			outerGlass.Anchored = true
+			outerGlass.CanCollide = true
+			outerGlass.Parent = facadeModel
+			CollectionService:AddTag(outerGlass, TAG_WINDOW)
+
+			-- 2. Recessed Interior Light (0.38 studs behind glass towards tower center)
+			local innerLight = Instance.new("Part")
+			innerLight.Name = string.format("CurvedGlass_F%d_B%d_InteriorLight", f + 1, b + 1)
+			innerLight.Size = Vector3.new(bayChordW - 0.4, floorH - 0.7, 0.12)
+			innerLight.CFrame = paneCFrame * CFrame.new(0, 0, -0.32)
+			innerLight.Anchored = true
+			innerLight.CanCollide = false
+			innerLight.CastShadow = false
+
+			local worldPos = innerLight.Position
+			local hashVal = math.noise(worldPos.X * 0.06, floorId * 0.5, worldPos.Z * 0.06)
+			local isLit = (hashVal + 1) * 0.5 <= 0.45
+
+			if isLit then
+				innerLight.Material = Enum.Material.Neon
+				innerLight.Color = GOLDEN_COLORS[math.random(1, #GOLDEN_COLORS)]
+				innerLight.Transparency = 0.0
 			else
-				for _, desc in ipairs(root:GetDescendants()) do
-					if desc:IsA("BasePart") then
-						local lowerName = string.lower(desc.Name)
-						local matchName = string.find(lowerName, "window") ~= nil or string.find(lowerName, "glass") ~= nil or string.find(lowerName, "pane") ~= nil
-						local matchMat = desc.Material == Enum.Material.Glass or desc.Material == Enum.Material.Neon
-						local matchTrans = desc.Transparency > 0.05 and desc.Transparency < 0.95
-						if matchName or matchMat or matchTrans or CollectionService:HasTag(desc, TAG_WINDOW) then
-							table.insert(targetParts, desc)
-						end
-					end
-				end
+				innerLight.Material = Enum.Material.SmoothPlastic
+				innerLight.Color = UNLIT_ROOM_COLOR
+				innerLight.Transparency = 0.0
 			end
-		end
-	else
-		for _, part in ipairs(CollectionService:GetTagged(TAG_WINDOW)) do
-			if part:IsA("BasePart") then
-				table.insert(targetParts, part)
-			end
-		end
-	end
 
-	if #targetParts == 0 then
-		warn("[SkyscraperPlugin] Select a building model or parts first, or tag windows!")
-		return 0
-	end
-
-	local goldenColors = {
-		Color3.fromRGB(255, 188, 85),  -- Warm Glowing Honey Gold
-		Color3.fromRGB(255, 212, 128), -- Champagne Gold
-		Color3.fromRGB(255, 164, 58),  -- Deep Amber Gold
-		Color3.fromRGB(255, 198, 105), -- Incandescent Desk Light Gold
-	}
-
-	local count = 0
-	for _, part in ipairs(targetParts) do
-		CollectionService:AddTag(part, TAG_WINDOW)
-		-- 45% active golden specks ratio for high-end luxury high-rise look
-		if math.random() < 0.45 then
-			part.Material = Enum.Material.Neon
-			part.Color = goldenColors[math.random(1, #goldenColors)]
-			part.Transparency = 0.0
-		else
-			part.Material = Enum.Material.Glass
-			part.Color = Color3.fromRGB(14, 17, 24) -- Obsidian Black Glass
-			part.Transparency = 0.08
-		end
-		count += 1
-	end
-
-	-- Fine-tune bloom for pinpoint golden specks
-	local bloom = Lighting:FindFirstChild("PhotorealBloom") or Lighting:FindFirstChildOfClass("BloomEffect")
-	if bloom and bloom:IsA("BloomEffect") then
-		bloom.Threshold = 1.85
-		bloom.Size = 18
-		bloom.Intensity = 0.52
-	end
-
-	local cc = Lighting:FindFirstChild("PhotorealColorCorrection") or Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
-	if cc and cc:IsA("ColorCorrectionEffect") then
-		cc.Contrast = 0.16
-		cc.Saturation = 0.08
-	end
-
-	Lighting.EnvironmentSpecularScale = 1.0
-
-	ChangeHistoryService:SetWaypoint("Styled " .. count .. " Windows as Black Glass & Golden Specks")
-	return count
-end
-
--- Convert selected model windows
-local function convertSelectedBuildingWindows(): number
-	local selected = Selection:Get()
-	if #selected == 0 then
-		warn("[SkyscraperPlugin] Please select a building model in the Explorer first!")
-		return 0
-	end
-
-	local convertedCount = 0
-	for _, root in ipairs(selected) do
-		local partsToConvert = {}
-		if root:IsA("BasePart") then
-			table.insert(partsToConvert, root)
-		else
-			for _, desc in ipairs(root:GetDescendants()) do
-				if desc:IsA("BasePart") then
-					local lowerName = string.lower(desc.Name)
-					local matchName = string.find(lowerName, "window") ~= nil or string.find(lowerName, "glass") ~= nil or string.find(lowerName, "pane") ~= nil
-					local matchMat = desc.Material == Enum.Material.Glass or desc.Material == Enum.Material.Neon
-					local matchTrans = desc.Transparency > 0.05 and desc.Transparency < 0.95
-					if matchName or matchMat or matchTrans then
-						table.insert(partsToConvert, desc)
-					end
-				end
-			end
+			CollectionService:AddTag(innerLight, TAG_INTERIOR)
+			innerLight.Parent = facadeModel
 		end
 
-		for _, part in ipairs(partsToConvert) do
-			CollectionService:AddTag(part, TAG_WINDOW)
-			-- 60% chance of lit at setup
-			if math.random() < 0.60 then
-				part.Material = Enum.Material.Neon
-				part.Color = OFFICE_COLORS[math.random(1, #OFFICE_COLORS)]
-				part.Transparency = 0.0
-			else
-				part.Material = Enum.Material.Glass
-				part.Color = Color3.fromRGB(24, 30, 38)
-				part.Transparency = 0.15
-			end
-			convertedCount += 1
-		end
+		-- Vertical Architectural Mullion
+		local mullionAngle = b * dTheta
+		local mCos, mSin = math.cos(mullionAngle), math.sin(mullionAngle)
+		local mPos = Vector3.new(mSin, 0, mCos) * radius
+		local mRot = CFrame.fromMatrix(Vector3.zero, Vector3.new(mCos, 0, -mSin), Vector3.new(0, 1, 0), Vector3.new(mSin, 0, mCos))
+
+		local mullion = Instance.new("Part")
+		mullion.Name = "Curved_Mullion"
+		mullion.Size = Vector3.new(0.35, height, 0.45)
+		mullion.CFrame = cframe * CFrame.new(mPos.X, 0, mPos.Z) * mRot
+		mullion.Color = Color3.fromRGB(20, 22, 28)
+		mullion.Material = Enum.Material.Metal
+		mullion.Anchored = true
+		mullion.CanCollide = true
+		mullion.Parent = facadeModel
 	end
 
-	ChangeHistoryService:SetWaypoint("Converted " .. convertedCount .. " Skyscraper Windows")
-	return convertedCount
+	facadeModel.Parent = workspace
+	Selection:Set({ facadeModel })
+	ChangeHistoryService:SetWaypoint("Generated Cylindrical Tower")
+	return facadeModel
 end
 
 -- Add Aviation Beacon on summit of selected building
@@ -623,7 +759,7 @@ local function addAviationBeaconToSelection(): Part?
 	light.Name = "BeaconGlow"
 	light.Color = Color3.fromRGB(255, 30, 30)
 	light.Range = 14
-	light.Brightness = 3.5
+	light.Brightness = 3.0
 	light.Shadows = false
 	light.Parent = beacon
 
@@ -635,56 +771,96 @@ local function addAviationBeaconToSelection(): Part?
 	return beacon
 end
 
--- Randomize all tagged windows
-local function randomizeTaggedWindows(litProbability: number?)
-	local prob = litProbability or 0.65
-	local count = 0
-	for _, part in ipairs(CollectionService:GetTagged(TAG_WINDOW)) do
-		if part:IsA("BasePart") then
-			if math.random() < prob then
-				part.Material = Enum.Material.Neon
-				part.Color = OFFICE_COLORS[math.random(1, #OFFICE_COLORS)]
-				part.Transparency = 0.0
-			else
-				part.Material = Enum.Material.Glass
-				part.Color = Color3.fromRGB(24, 30, 38)
-				part.Transparency = 0.15
-			end
-			count += 1
-		end
-	end
-	ChangeHistoryService:SetWaypoint("Randomized " .. count .. " Window Lights")
-	return count
-end
-
 -- =========================================================================
--- PLUGIN UI INITIALIZATION
+-- STUDIO RIBBON TOOLBAR (Direct 1-Click Actions Without Docking)
 -- =========================================================================
 
-local toolbar = plugin:CreateToolbar("🏙️ Skyscraper & Shaders")
-local toggleBtn = toolbar:CreateButton("Open Studio Panel", "Open the Photorealistic Lighting & Skyscraper Control Panel", "rbxassetid://6031280882")
+local toolbar = plugin:CreateToolbar("Skyscraper Lighting")
 
-local widgetInfo = DockWidgetPluginGuiInfo.new(
-	Enum.InitialDockState.Right,
-	false, -- initially enabled
-	false, -- override previous state
-	340,   -- default width
-	560,   -- default height
-	280,   -- min width
-	420    -- min height
+local btnApplyLighting = toolbar:CreateButton(
+	"Blue Hour Dusk",
+	"One-click photoreal Blue Hour dusk lighting, atmosphere, and bloom",
+	"rbxassetid://6031075931"
 )
 
-local widget = plugin:CreateDockWidgetPluginGui("SkyscraperLightingDockWidget", widgetInfo)
-widget.Title = "🏙️ Skyscraper & Photoreal Lighting"
+local btnConvert = toolbar:CreateButton(
+	"Convert Windows",
+	"Convert selected building to dual-layer tinted glass & warm interior lights",
+	"rbxassetid://6031265976"
+)
 
--- Create UI
+local btnCurtainWall = toolbar:CreateButton(
+	"Fit Facade",
+	"Fit modular non-stretching glass curtain wall to selected part",
+	"rbxassetid://6034287594"
+)
+
+local btnCylinder = toolbar:CreateButton(
+	"Round Tower",
+	"Spawn 360-degree cylindrical glass skyscraper tower",
+	"rbxassetid://6031075929"
+)
+
+local btnRandomize = toolbar:CreateButton(
+	"Randomize",
+	"Randomize office lights across all tagged buildings",
+	"rbxassetid://6031280883"
+)
+
+local btnTogglePanel = toolbar:CreateButton(
+	"Control Panel",
+	"Open floating control panel for presets and tools",
+	"rbxassetid://6031280882"
+)
+
+-- Direct toolbar button handlers
+btnApplyLighting.Click:Connect(function()
+	applyLightingPreset("BlueHour")
+end)
+
+btnConvert.Click:Connect(function()
+	convertSelectedBuildingWindows()
+end)
+
+btnCurtainWall.Click:Connect(function()
+	spawnOrFitCurtainWall()
+end)
+
+btnCylinder.Click:Connect(function()
+	spawnCylindricalTower()
+end)
+
+btnRandomize.Click:Connect(function()
+	randomizeTaggedWindows()
+end)
+
+-- =========================================================================
+-- FLOATING CONTROL PANEL (InitialDockState.Float avoids Qt dock cursor bug)
+-- =========================================================================
+
+local widgetInfo = DockWidgetPluginGuiInfo.new(
+	Enum.InitialDockState.Float,
+	false, -- initially enabled = false
+	false, -- override previous state = false
+	320,   -- default width
+	540,   -- default height
+	280,   -- min width
+	380    -- min height
+)
+
+local widget = plugin:CreateDockWidgetPluginGui("SkyscraperFloatingPalette", widgetInfo)
+widget.Title = "Skyscraper & Photoreal Lighting"
+widget.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
 local bg = Instance.new("ScrollingFrame")
 bg.Name = "MainFrame"
 bg.Size = UDim2.new(1, 0, 1, 0)
-bg.BackgroundColor3 = Color3.fromRGB(30, 32, 38)
+bg.BackgroundColor3 = Color3.fromRGB(24, 26, 32)
 bg.BorderSizePixel = 0
-bg.ScrollBarThickness = 6
-bg.CanvasSize = UDim2.new(0, 0, 0, 880)
+bg.ScrollBarThickness = 5
+bg.ScrollBarImageColor3 = Color3.fromRGB(70, 75, 90)
+bg.CanvasSize = UDim2.new(0, 0, 0, 800)
+bg.Active = false -- IMPORTANT: false prevents mouse capture in Studio
 bg.Parent = widget
 
 local padding = Instance.new("UIPadding")
@@ -696,29 +872,30 @@ padding.Parent = bg
 
 local layout = Instance.new("UIListLayout")
 layout.SortOrder = Enum.SortOrder.LayoutOrder
-layout.Padding = UDim.new(0, 10)
+layout.Padding = UDim.new(0, 8)
 layout.Parent = bg
 
 local function createHeader(text: string, order: number)
 	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(1, 0, 0, 26)
+	label.Size = UDim2.new(1, 0, 0, 24)
 	label.BackgroundTransparency = 1
 	label.Font = Enum.Font.GothamBold
-	label.TextSize = 14
-	label.TextColor3 = Color3.fromRGB(240, 242, 248)
+	label.TextSize = 13
+	label.TextColor3 = Color3.fromRGB(220, 225, 235)
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.Text = text
 	label.LayoutOrder = order
+	label.Active = false
 	label.Parent = bg
 	return label
 end
 
 local function createButton(text: string, order: number, color: Color3?, onClick: () -> ())
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1, 0, 0, 36)
-	btn.BackgroundColor3 = color or Color3.fromRGB(48, 54, 68)
+	btn.Size = UDim2.new(1, 0, 0, 34)
+	btn.BackgroundColor3 = color or Color3.fromRGB(42, 48, 60)
 	btn.Font = Enum.Font.GothamMedium
-	btn.TextSize = 13
+	btn.TextSize = 12
 	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	btn.Text = text
 	btn.AutoButtonColor = true
@@ -726,7 +903,7 @@ local function createButton(text: string, order: number, color: Color3?, onClick
 	btn.Parent = bg
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 6)
+	corner.CornerRadius = UDim.new(0, 5)
 	corner.Parent = btn
 
 	btn.MouseButton1Click:Connect(onClick)
@@ -734,94 +911,87 @@ local function createButton(text: string, order: number, color: Color3?, onClick
 end
 
 -- Section 1: Presets
-createHeader("🌟 PHOTOREAL SHADER PRESETS", 1)
+createHeader("PHOTOREAL SHADER PRESETS", 1)
 
-createButton("🌆 Blue Hour (Skyscraper Dusk)", 2, Color3.fromRGB(38, 70, 120), function()
+createButton("🌆 Blue Hour (Skyscraper Dusk)", 2, Color3.fromRGB(35, 65, 115), function()
 	applyLightingPreset("BlueHour")
 end)
 
-createButton("🌅 Golden Hour (Dramatic Sunset)", 3, Color3.fromRGB(150, 75, 25), function()
+createButton("🌅 Golden Hour (Dramatic Sunset)", 3, Color3.fromRGB(135, 70, 25), function()
 	applyLightingPreset("GoldenHour")
 end)
 
-createButton("☀️ Photoreal High Noon", 4, Color3.fromRGB(70, 100, 130), function()
+createButton("☀️ Photoreal High Noon", 4, Color3.fromRGB(60, 88, 118), function()
 	applyLightingPreset("HighNoon")
 end)
 
-createButton("🌃 Metropolis Night", 5, Color3.fromRGB(28, 35, 60), function()
+createButton("🌃 Metropolis Night", 5, Color3.fromRGB(26, 32, 54), function()
 	applyLightingPreset("NightMetropolis")
 end)
 
-createButton("☁️ Moody Overcast", 6, Color3.fromRGB(65, 75, 85), function()
+createButton("☁️ Moody Overcast", 6, Color3.fromRGB(58, 66, 76), function()
 	applyLightingPreset("OvercastMoody")
 end)
 
 -- Section 2: Building Tools
-createHeader("🏢 SKYSCRAPER TOOLS", 7)
+createHeader("DUAL-LAYER SKYSCRAPER TOOLS", 7)
 
 local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, 0, 0, 22)
+statusLabel.Size = UDim2.new(1, 0, 0, 20)
 statusLabel.BackgroundTransparency = 1
 statusLabel.Font = Enum.Font.Gotham
-statusLabel.TextSize = 12
-statusLabel.TextColor3 = Color3.fromRGB(140, 210, 150)
+statusLabel.TextSize = 11
+statusLabel.TextColor3 = Color3.fromRGB(130, 205, 140)
 statusLabel.Text = "Ready. Select a model in Explorer."
 statusLabel.LayoutOrder = 8
+statusLabel.Active = false
 statusLabel.Parent = bg
 
-createButton("🪟 Fit Curtain Wall to Selected Part", 9, Color3.fromRGB(35, 95, 130), function()
+createButton("🏢 Convert Selection (Tinted Glass + Inner Light)", 9, Color3.fromRGB(36, 100, 72), function()
+	local count = convertSelectedBuildingWindows()
+	if count > 0 then
+		statusLabel.Text = string.format("✓ Converted %d windows with dual-layer lighting!", count)
+	else
+		statusLabel.Text = "Select a building model first."
+	end
+end)
+
+createButton("🪟 Fit Curtain Wall to Selected Part", 10, Color3.fromRGB(30, 85, 120), function()
 	local facade = spawnOrFitCurtainWall()
 	if facade then
 		statusLabel.Text = "✓ Generated Glass & Golden Light Facade!"
 	end
 end)
 
-createButton("🔵 Spawn Round Cylindrical Tower", 10, Color3.fromRGB(45, 80, 140), function()
+createButton("🔵 Spawn 360° Cylindrical Tower", 11, Color3.fromRGB(40, 72, 130), function()
 	local tower = spawnCylindricalTower()
 	if tower then
 		statusLabel.Text = "✓ Generated 360° Round Glass Tower!"
 	end
 end)
 
-createButton("✨ Style: Black Glass & Golden Specks", 11, Color3.fromRGB(160, 115, 25), function()
-	local count = applyBlackGlassAndGoldenSpecks()
-	if count > 0 then
-		statusLabel.Text = string.format("✓ Styled %d windows with Golden Specks!", count)
-	else
-		statusLabel.Text = "Select a building model first."
-	end
-end)
-
-createButton("🏢 Auto-Convert Selected Windows", 10, Color3.fromRGB(42, 110, 80), function()
-	local count = convertSelectedBuildingWindows()
-	if count > 0 then
-		statusLabel.Text = string.format("✓ Converted %d windows!", count)
-	else
-		statusLabel.Text = "No windows found in selection."
-	end
-end)
-
-createButton("🚨 Add Rooftop Aviation Beacon", 11, Color3.fromRGB(140, 40, 40), function()
+createButton("🚨 Add Rooftop Aviation Beacon", 12, Color3.fromRGB(130, 36, 36), function()
 	local beacon = addAviationBeaconToSelection()
 	if beacon then
 		statusLabel.Text = "✓ Added rooftop obstruction beacon!"
 	else
-		statusLabel.Text = "Selection required."
+		statusLabel.Text = "Select a building model or rooftop first."
 	end
 end)
 
-createButton("🎲 Randomize Office Lights", 12, Color3.fromRGB(60, 65, 80), function()
+createButton("🎲 Randomize Office Lights", 13, Color3.fromRGB(52, 58, 72), function()
 	local count = randomizeTaggedWindows()
 	statusLabel.Text = string.format("✓ Randomized %d windows!", count)
 end)
 
--- Section 3: Time of Day quick jump
-createHeader("🕒 TIME OF DAY SHORTCUTS", 12)
+-- Section 3: Time Shortcuts
+createHeader("TIME OF DAY QUICK JUMP", 14)
 
 local timeContainer = Instance.new("Frame")
-timeContainer.Size = UDim2.new(1, 0, 0, 36)
+timeContainer.Size = UDim2.new(1, 0, 0, 32)
 timeContainer.BackgroundTransparency = 1
-timeContainer.LayoutOrder = 13
+timeContainer.LayoutOrder = 15
+timeContainer.Active = false
 timeContainer.Parent = bg
 
 local timeGrid = Instance.new("UIGridLayout")
@@ -833,9 +1003,9 @@ local function addTimeBtn(text: string, time: number)
 	local b = Instance.new("TextButton")
 	b.Text = text
 	b.Font = Enum.Font.GothamMedium
-	b.TextSize = 11
-	b.TextColor3 = Color3.fromRGB(240, 240, 240)
-	b.BackgroundColor3 = Color3.fromRGB(44, 48, 58)
+	b.TextSize = 10
+	b.TextColor3 = Color3.fromRGB(235, 235, 235)
+	b.BackgroundColor3 = Color3.fromRGB(38, 42, 52)
 	local c = Instance.new("UICorner")
 	c.CornerRadius = UDim.new(0, 4)
 	c.Parent = b
@@ -846,13 +1016,13 @@ local function addTimeBtn(text: string, time: number)
 	b.Parent = timeContainer
 end
 
-addTimeBtn("06:00 (Dawn)", 6.0)
-addTimeBtn("12:00 (Noon)", 12.0)
-addTimeBtn("18:15 (Dusk)", 18.25)
-addTimeBtn("23:00 (Night)", 23.0)
+addTimeBtn("06:00", 6.0)
+addTimeBtn("12:00", 12.0)
+addTimeBtn("18:15", 18.25)
+addTimeBtn("23:00", 23.0)
 
-toggleBtn.Click:Connect(function()
+btnTogglePanel.Click:Connect(function()
 	widget.Enabled = not widget.Enabled
 end)
 
-print("[SkyscraperLightingPlugin] Plugin loaded successfully.")
+print("[SkyscraperLightingPlugin] Plugin loaded successfully with ribbon controls and floating palette.")
