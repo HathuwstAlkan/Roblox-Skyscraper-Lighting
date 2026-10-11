@@ -1,0 +1,6 @@
+{
+  "name": "SkyscraperLightingPlugin",
+  "tree": {
+    "$path": "src/plugin/init.server.luau"
+  }
+}

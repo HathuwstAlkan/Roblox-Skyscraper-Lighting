@@ -1,0 +1,75 @@
+{
+  "name": "Roblox-Skyscraper-Lighting",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": {
+        "Lighting": {
+          "$path": "src/shared"
+        }
+      }
+    },
+    "ServerScriptService": {
+      "LightingBootstrap": {
+        "$path": "src/server/LightingBootstrap.server.luau"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "SkyscraperClientFX": {
+          "$path": "src/client/SkyscraperClientFX.client.luau"
+        }
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "Ambient": [0.086, 0.11, 0.165],
+        "OutdoorAmbient": [0.176, 0.235, 0.372],
+        "Brightness": 1.8,
+        "ClockTime": 18.25,
+        "EnvironmentDiffuseScale": 1.0,
+        "EnvironmentSpecularScale": 1.0,
+        "GeographicLatitude": 40.7,
+        "GlobalShadows": true,
+        "Outlines": false,
+        "ShadowSoftness": 0.2,
+        "Technology": "Future"
+      },
+      "Atmosphere": {
+        "$className": "Atmosphere",
+        "$properties": {
+          "Color": [0.608, 0.725, 0.922],
+          "Decay": [0.216, 0.306, 0.51],
+          "Density": 0.38,
+          "Glare": 0.38,
+          "Haze": 1.35,
+          "Offset": 0.28
+        }
+      },
+      "Bloom": {
+        "$className": "BloomEffect",
+        "$properties": {
+          "Intensity": 0.45,
+          "Size": 24,
+          "Threshold": 1.75
+        }
+      },
+      "ColorCorrection": {
+        "$className": "ColorCorrectionEffect",
+        "$properties": {
+          "Brightness": 0.02,
+          "Contrast": 0.14,
+          "Saturation": 0.06,
+          "TintColor": [0.98, 0.972, 1.0]
+        }
+      },
+      "SunRays": {
+        "$className": "SunRaysEffect",
+        "$properties": {
+          "Intensity": 0.08,
+          "Spread": 0.72
+        }
+      }
+    }
+  }
+}

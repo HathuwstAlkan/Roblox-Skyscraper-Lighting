@@ -1,0 +1,17 @@
+# Roblox binaries & places
+*.rbxl
+*.rbxlx
+test_build.rbxl
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor folders
+.vscode/
+.idea/
+
+# Node / temporary files
+*.tmp
+*.log
